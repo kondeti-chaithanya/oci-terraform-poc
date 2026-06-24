@@ -32,7 +32,13 @@ jobs:
           ls -l ~/.oci
           head -2 ~/.oci/oci_api_key.pem
           tail -2 ~/.oci/oci_api_key.pem
-
+      - name: Debug OCI Variables
+        run: |
+          echo "Region=$TF_VAR_region"
+          echo "Fingerprint=$TF_VAR_fingerprint"
+          echo "User length=${#TF_VAR_user_ocid}"
+          echo "Tenancy length=${#TF_VAR_tenancy_ocid}"
+          echo "Compartment length=${#TF_VAR_compartment_ocid}"
       - name: Terraform Init
         run: terraform init
 
