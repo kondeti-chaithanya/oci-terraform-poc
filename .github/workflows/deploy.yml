@@ -16,69 +16,45 @@ jobs:
 
     steps:
 
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
+
+      #########################################################
+      # OCI CLI Authentication Test (Oracle Official Action)
+      #########################################################
+
+      - name: Test OCI Authentication
+        uses: oracle-actions/run-oci-cli-command@v1.1.1
+        env:
+          OCI_CLI_USER: ${{ secrets.OCI_USER_OCID }}
+          OCI_CLI_TENANCY: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_CLI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_CLI_KEY_CONTENT: ${{ secrets.OCI_PRIVATE_KEY }}
+          OCI_CLI_REGION: ${{ secrets.OCI_REGION }}
+        with:
+          command: "os ns get"
+
+      #########################################################
+      # Setup Terraform
+      #########################################################
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      ###########################################################
-      # Install OCI CLI
-      ###########################################################
-      - name: Install OCI CLI
-        run: |
-          bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)" -- --accept-all-defaults
-          echo "$HOME/bin" >> $GITHUB_PATH
+      #########################################################
+      # Create OCI Key
+      #########################################################
 
-      ###########################################################
-      # Create OCI Private Key
-      ###########################################################
-      - name: Create OCI API Key
+      - name: Create OCI Key
         run: |
           mkdir -p ~/.oci
-
-          cat <<EOF > ~/.oci/oci_api_key.pem
-          ${{ secrets.OCI_PRIVATE_KEY }}
-          EOF
-
+          printf "%s" "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/oci_api_key.pem
 
-      ###########################################################
-      # Create OCI Config
-      ###########################################################
-      - name: Create OCI Config
-        run: |
-          cat <<EOF > ~/.oci/config
-          [DEFAULT]
-          user=${{ secrets.OCI_USER_OCID }}
-          fingerprint=${{ secrets.OCI_FINGERPRINT }}
-          tenancy=${{ secrets.OCI_TENANCY_OCID }}
-          region=${{ secrets.OCI_REGION }}
-          key_file=/home/runner/.oci/oci_api_key.pem
-          EOF
-
-      ###########################################################
-      # Verify Config
-      ###########################################################
-      - name: Verify OCI Files
-        run: |
-          echo "========== CONFIG =========="
-          cat ~/.oci/config
-
-          echo ""
-          echo "========== KEY =========="
-          ls -l ~/.oci
-
-      ###########################################################
-      # Test OCI Authentication
-      ###########################################################
-      - name: Test OCI Login
-        run: |
-          oci os ns get
-
-      ###########################################################
+      #########################################################
       # Terraform
-      ###########################################################
+      #########################################################
+
       - name: Terraform Init
         run: terraform init
 
