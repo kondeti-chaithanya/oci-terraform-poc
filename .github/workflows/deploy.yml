@@ -15,30 +15,70 @@ jobs:
       TF_VAR_compartment_ocid: ${{ secrets.OCI_COMPARTMENT_OCID }}
 
     steps:
-      - uses: actions/checkout@v4
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      ###########################################################
+      # Install OCI CLI
+      ###########################################################
+      - name: Install OCI CLI
+        run: |
+          bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)" -- --accept-all-defaults
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      ###########################################################
+      # Create OCI Private Key
+      ###########################################################
       - name: Create OCI API Key
         run: |
           mkdir -p ~/.oci
+
           cat <<EOF > ~/.oci/oci_api_key.pem
           ${{ secrets.OCI_PRIVATE_KEY }}
           EOF
+
           chmod 600 ~/.oci/oci_api_key.pem
 
-      - name: Verify OCI Key
+      ###########################################################
+      # Create OCI Config
+      ###########################################################
+      - name: Create OCI Config
         run: |
+          cat <<EOF > ~/.oci/config
+          [DEFAULT]
+          user=${{ secrets.OCI_USER_OCID }}
+          fingerprint=${{ secrets.OCI_FINGERPRINT }}
+          tenancy=${{ secrets.OCI_TENANCY_OCID }}
+          region=${{ secrets.OCI_REGION }}
+          key_file=/home/runner/.oci/oci_api_key.pem
+          EOF
+
+      ###########################################################
+      # Verify Config
+      ###########################################################
+      - name: Verify OCI Files
+        run: |
+          echo "========== CONFIG =========="
+          cat ~/.oci/config
+
+          echo ""
+          echo "========== KEY =========="
           ls -l ~/.oci
-          head -2 ~/.oci/oci_api_key.pem
-          tail -2 ~/.oci/oci_api_key.pem
-      - name: Debug OCI Variables
+
+      ###########################################################
+      # Test OCI Authentication
+      ###########################################################
+      - name: Test OCI Login
         run: |
-          echo "Region=$TF_VAR_region"
-          echo "Fingerprint=$TF_VAR_fingerprint"
-          echo "User length=${#TF_VAR_user_ocid}"
-          echo "Tenancy length=${#TF_VAR_tenancy_ocid}"
-          echo "Compartment length=${#TF_VAR_compartment_ocid}"
+          oci os ns get
+
+      ###########################################################
+      # Terraform
+      ###########################################################
       - name: Terraform Init
         run: terraform init
 
