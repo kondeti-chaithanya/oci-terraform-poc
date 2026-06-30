@@ -1,0 +1,164 @@
+name: OCI Function Deployment
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: function-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: sample-function
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'uat' }}
+
+    env:
+      OCI_REGION: ${{ secrets.OCI_CLI_REGION }}
+      OCIR_NAMESPACE: ${{ secrets.OCIR_NAMESPACE }}
+      FUNCTION_OCID: ${{ secrets.FUNCTION_OCID }}
+
+    steps:
+
+      
+      # Checkout
+      
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+     
+      # Configure OCI Authentication
+      
+
+      - name: Configure OCI Credentials
+        run: |
+          mkdir -p $HOME/.oci
+
+          echo "${{ secrets.OCI_CLI_KEY_CONTENT }}" > $HOME/.oci/oci_api_key.pem
+
+          chmod 600 $HOME/.oci/oci_api_key.pem
+
+          cat > $HOME/.oci/config <<EOF
+          [DEFAULT]
+          user=${{ secrets.OCI_CLI_USER }}
+          fingerprint=${{ secrets.OCI_CLI_FINGERPRINT }}
+          tenancy=${{ secrets.OCI_CLI_TENANCY }}
+          region=${{ secrets.OCI_CLI_REGION }}
+          key_file=$HOME/.oci/oci_api_key.pem
+          EOF
+
+          chmod 600 $HOME/.oci/config
+
+      
+      # Install OCI CLI
+      
+
+      - name: Install OCI CLI
+        run: |
+
+          bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)" -- \
+          --accept-all-defaults
+
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+     
+      # Login to OCIR
+      
+      - name: Login to Oracle Container Registry
+        run: |
+
+          echo "${{ secrets.OCIR_AUTH_TOKEN }}" | docker login \
+          ${OCI_REGION}.ocir.io \
+          -u "${{ secrets.OCIR_USERNAME }}" \
+          --password-stdin
+
+      
+      # Build Docker Image
+      
+
+      - name: Build Docker Image
+        working-directory: ./function
+
+        run: |
+
+          docker build \
+          -t ${OCI_REGION}.ocir.io/${OCIR_NAMESPACE}/functions/${IMAGE_NAME}:${{ github.sha }} .
+
+      
+      # Push Docker Image
+     
+
+      - name: Push Docker Image
+
+        run: |
+
+          docker push \
+          ${OCI_REGION}.ocir.io/${OCIR_NAMESPACE}/functions/${IMAGE_NAME}:${{ github.sha }}
+
+     
+      # Get Image Digest
+      
+
+      - name: Get Image Digest
+        id: digest
+
+        run: |
+
+          IMAGE=${OCI_REGION}.ocir.io/${OCIR_NAMESPACE}/functions/${IMAGE_NAME}:${{ github.sha }}
+
+          DIGEST=$(docker inspect \
+          --format='{{index .RepoDigests 0}}' \
+          $IMAGE)
+
+          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
+
+      
+      # Deploy OCI Function
+      
+
+      - name: Update OCI Function
+
+        run: |
+
+          oci fn function update \
+            --function-id ${FUNCTION_OCID} \
+            --image "${{ steps.digest.outputs.digest }}"
+
+      
+      # Verify Deployment
+      
+
+      - name: Verify Function
+
+        run: |
+
+          oci fn function get \
+            --function-id ${FUNCTION_OCID}
+
+      
+      # Logout
+      
+
+      - name: Logout from OCIR
+        if: always()
+
+        run: |
+
+          docker logout ${OCI_REGION}.ocir.io
+
+      
+      # Cleanup
+      
+
+      - name: Cleanup OCI Credentials
+        if: always()
+
+        run: |
+
+          rm -rf $HOME/.oci
